@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cat VERSION)"
+          expected_tag="v${version}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "VERSION is not semantic: $version" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "tag $GITHUB_REF_NAME does not match $expected_tag" >&2
+            exit 1
+          fi
+      - name: Install process inspection dependencies
+        run: sudo apt-get update && sudo apt-get install -y tmux lsof
+      - name: Run unit tests
+        run: go test ./...
+      - name: Run go vet
+        run: go vet ./...
+      - name: Run installer tests
+        run: sh scripts/install_test.sh
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build release assets
+        run: make release
+      - name: Store release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          if-no-files-found: error
+          path: |
+            dist/agent-transcript-darwin-arm64
+            dist/agent-transcript-darwin-amd64
+            dist/agent-transcript-linux-arm64
+            dist/agent-transcript-linux-amd64
+            dist/checksums.txt
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/agent-transcript-darwin-arm64 \
+            dist/agent-transcript-darwin-amd64 \
+            dist/agent-transcript-linux-arm64 \
+            dist/agent-transcript-linux-amd64 \
+            dist/checksums.txt \
+            --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

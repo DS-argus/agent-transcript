@@ -1,0 +1,22 @@
+# Generated executables and release artifacts
+/bin/
+/dist/
+*.test
+/coverage.out
+/coverage.html
+
+# Local agent state, session logs, and investigation notes
+/.gjc/
+/.omc/
+/.omx/
+/docs/agent-discovery-investigation.md
+/docs/note.md
+
+# Local diagnostics and scratch directories
+/.*-check.*/
+
+# Machine-local settings and credentials
+.DS_Store
+.env
+.env.*
+!.env.example
