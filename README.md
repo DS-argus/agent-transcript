@@ -56,7 +56,7 @@ Add to `~/.tmux.conf`, keeping TPM initialization last:
 
 ```tmux
 set -g @plugin 'tmux-plugins/tpm'
-set -g @plugin 'DS-argus/agent-transcript'
+set -g @plugin 'https://github.com/DS-argus/agent-transcript.git'
 
 # Optional: set plugin preferences before initialization.
 set -g @agent_transcript_reader 'leaf'
@@ -70,14 +70,14 @@ Reload with `tmux source-file ~/.tmux.conf`, then press **prefix + I** (uppercas
 With the standalone `tpack` executable installed on `PATH`, add:
 
 ```tmux
-set -g @plugin 'DS-argus/agent-transcript'
+set -g @plugin 'https://github.com/DS-argus/agent-transcript.git'
 set -g @agent_transcript_reader 'leaf'
 
 # Keep this at the bottom of ~/.tmux.conf.
 run 'tpack init'
 ```
 
-Reload with `tmux source-file ~/.tmux.conf`, then press **prefix + I**, or run `tpack install`.
+Reload with `tmux source-file ~/.tmux.conf`, then press **prefix + I**, or run `tpack install` followed by `tpack source`.
 
 ### Automatic binary installation and updates
 
@@ -136,7 +136,7 @@ The selected reader must be installed; no other reader is substituted automatica
 
 ## Troubleshooting
 
-- **Download failed:** check access to GitHub Releases and the installer dependencies below, then reload tmux. Failed downloads never replace an existing binary. A missing release asset or checksum mismatch is an error, not a reason to run an unverified download.
+- **Download failed:** check access to GitHub Releases and the installer dependencies in Requirements, then reload tmux. Failed downloads never replace an existing binary. A missing release asset or checksum mismatch is an error, not a reason to run an unverified download.
 - **Missing command:** ensure the selected reader, `ps`, and `lsof` are available on tmux's `PATH`. Minimal Linux environments may need these tools installed separately.
 - **No saved messages:** complete a conversation turn, then invoke the plugin again.
 - **Multiple sessions found:** the plugin could not select a unique owned conversation. It does not pick whichever file was modified most recently.
