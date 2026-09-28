@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -53,8 +51,7 @@ func resolveIdentity(source paneState) (snapshotIdentity, error) {
 	located, err := (harness.Resolver{}).Resolve(pid)
 	if err != nil {
 		if errors.Is(err, harness.ErrUnsupportedForeground) {
-			identity.harness = "screen"
-			return identity, nil
+			return snapshotIdentity{}, fmt.Errorf("Run this from a supported agent pane.")
 		}
 		return snapshotIdentity{}, err
 	}
@@ -83,7 +80,7 @@ type preparedSnapshot struct {
 
 func (s preparedSnapshot) cleanup() { _ = os.RemoveAll(s.directory) }
 
-func writeSnapshot(ctx context.Context, identity snapshotIdentity) (preparedSnapshot, error) {
+func writeSnapshot(identity snapshotIdentity) (preparedSnapshot, error) {
 	root, err := cacheDirectory("snapshots")
 	if err != nil {
 		return preparedSnapshot{}, err
@@ -98,22 +95,9 @@ func writeSnapshot(ctx context.Context, identity snapshotIdentity) (preparedSnap
 		result.cleanup()
 		return preparedSnapshot{}, err
 	}
-	var writeErr error
-	if identity.harness == "screen" {
-		cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-p", "-J", "-S", "-", "-t", identity.source)
-		cmd.Stdout = file
-		var stderr strings.Builder
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			writeErr = fmt.Errorf("capture failed: %s: %w", strings.TrimSpace(stderr.String()), err)
-		}
-	} else {
-		doc, renderErr := harness.RenderFile(identity.harness, identity.path)
-		if renderErr != nil {
-			writeErr = renderErr
-		} else {
-			_, writeErr = io.WriteString(file, doc.Markdown)
-		}
+	doc, writeErr := harness.RenderFile(identity.harness, identity.path)
+	if writeErr == nil {
+		_, writeErr = io.WriteString(file, doc.Markdown)
 	}
 	closeErr := file.Close()
 	if writeErr == nil {

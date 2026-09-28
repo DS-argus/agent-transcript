@@ -135,29 +135,28 @@ func TestNotificationModePreservesActionableErrors(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, "notification failed") {
 		t.Fatalf("notification failure hid original error: %s %v", stderr, err)
 	}
-	_, client := attachTestClient(t, s)
+	tty, client := attachTestClient(t, s)
 	stdout, stderr, err := s.launch("--notify-client", client)
 	if err != nil || stdout != "" || stderr != "" {
-		t.Fatalf("screen fallback produced shell output: %q %q %v", stdout, stderr, err)
+		t.Fatalf("unsupported foreground notification failed: %q %q %v", stdout, stderr, err)
 	}
-	panes := s.panes()
-	if len(panes) != 2 {
-		t.Fatalf("screen fallback did not open viewer: %v", panes)
+	shown := waitForNotice(t, tty)
+	if !bytes.Contains(shown, []byte("Run this from a supported agent pane.")) {
+		t.Fatalf("unsupported foreground notice missing: %q", shown)
 	}
-	for _, pane := range panes {
-		if pane != s.source {
-			s.close(pane)
-		}
+	if len(s.panes()) != 1 || s.tmux("display-message", "-p", "-t", "test", "#{pane_id}") != s.source {
+		t.Fatal("unsupported foreground changed pane layout or focus")
 	}
+	if s.tmux("display-message", "-p", "-t", s.source, "#{pane_in_mode}") != "0" {
+		t.Fatal("unsupported foreground changed pane mode")
+	}
+	s.clean()
 	_, stderr, err = s.launch()
-	if err != nil || stderr != "" {
-		t.Fatalf("plain idle-shell launch failed: %q %v", stderr, err)
+	if err == nil || !strings.Contains(stderr, "Run this from a supported agent pane.") {
+		t.Fatalf("plain unsupported launch diagnostic: %q %v", stderr, err)
 	}
-	panes = s.panes()
-	for _, pane := range panes {
-		if pane != s.source {
-			s.close(pane)
-		}
+	if len(s.panes()) != 1 {
+		t.Fatalf("plain unsupported launch opened a viewer: %v", s.panes())
 	}
 	s.clean()
 }

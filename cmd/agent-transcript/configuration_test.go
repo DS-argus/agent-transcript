@@ -44,7 +44,8 @@ func TestLayoutFocusBottomCombinations(t *testing.T) {
 	for _, position := range []string{"right", "left", "top", "bottom"} {
 		for _, focus := range []string{"on", "off"} {
 			t.Run(position+"/"+focus, func(t *testing.T) {
-				s := newServer(t)
+				readerDocument(t, 0)
+				s := newServer(t, "codex")
 				pane := s.open("--position", position, "--size", "35%", "--focus", focus)
 				expected := s.source
 				if focus == "on" {
@@ -53,7 +54,7 @@ func TestLayoutFocusBottomCombinations(t *testing.T) {
 				if got := s.tmux("display-message", "-p", "-t", "test", "#{pane_id}"); got != expected {
 					t.Fatalf("focus %s want %s", got, expected)
 				}
-				marker := "READY"
+				marker := "END-OF-TRANSCRIPT"
 				s.wait(func() bool { return strings.Contains(s.capture(pane), marker) })
 				coords := func(p string) (int, int) {
 					f := strings.Fields(s.tmux("display-message", "-p", "-t", p, "#{pane_left} #{pane_top}"))
@@ -71,8 +72,45 @@ func TestLayoutFocusBottomCombinations(t *testing.T) {
 		}
 	}
 }
+func TestDefaultLayoutUsesTopViewerAndViewerPercentage(t *testing.T) {
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
+	pane := s.open()
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
+	if got := s.tmux("display-message", "-p", "-t", "test", "#{pane_id}"); got != pane {
+		t.Fatalf("default focus = %s, want %s", got, pane)
+	}
+	paneTop, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", pane, "#{pane_top}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceTop, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", s.source, "#{pane_top}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerHeight, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", pane, "#{pane_height}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceHeight, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", s.source, "#{pane_height}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	windowHeight, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", "test", "#{window_height}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paneTop != 0 || sourceTop <= paneTop {
+		t.Fatalf("default layout is not top: viewer top=%d source top=%d", paneTop, sourceTop)
+	}
+	if viewerHeight*100 < windowHeight*90 || sourceHeight >= viewerHeight {
+		t.Fatalf("default viewer size is not approximately 95%%: viewer=%d source=%d window=%d", viewerHeight, sourceHeight, windowHeight)
+	}
+	s.close(pane)
+}
 func TestCellSizeAndInvalidRefreshOptions(t *testing.T) {
-	s := newServer(t)
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
 	pane := s.open("--position", "bottom", "--size", "10")
 	if got := s.tmux("display-message", "-p", "-t", pane, "#{pane_height}"); got != "10" {
 		t.Fatal("cell size not applied", got)

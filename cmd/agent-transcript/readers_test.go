@@ -13,6 +13,7 @@ func readerDocument(t *testing.T, lines int) string {
 	var text strings.Builder
 	text.WriteString("# Reader heading\n\n**Bold text** and `inline code`.\n\n")
 	for i := 0; i < lines; i++ {
+		text.WriteString("Unicode: 한글 snapshot.\n\n")
 		text.WriteString("Paragraph to scroll through.\n\n")
 	}
 	text.WriteString("END-OF-TRANSCRIPT\n")
@@ -23,9 +24,10 @@ func readerDocument(t *testing.T, lines int) string {
 	return path
 }
 
-func openReader(t *testing.T, s *server, name string) string {
+func openReader(t *testing.T, s *server, name string, viewArgs ...string) string {
 	t.Helper()
-	stdout, stderr, err := s.launch("--reader", name)
+	args := append([]string{"--reader", name}, viewArgs...)
+	stdout, stderr, err := s.launch(args...)
 	if err != nil || stdout != "" || stderr != "" {
 		t.Fatalf("%s launch: %q %q %v", name, stdout, stderr, err)
 	}
@@ -47,7 +49,7 @@ func TestMarkdownReadersStartAtBottomAndRemainNavigable(t *testing.T) {
 			}
 			readerDocument(t, 60)
 			s := newServer(t, "codex")
-			pane := openReader(t, s, name)
+			pane := openReader(t, s, name, "--position", "right", "--size", "50%")
 			// No user key is sent before asserting the initial bottom position.
 			s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
 			if strings.Contains(s.capture(pane), "Reader heading") {
@@ -122,8 +124,8 @@ func TestConfiguredGlowReaderIsUsedByBindingCommand(t *testing.T) {
 	}
 	t.Setenv("PAGER", "cat")
 	t.Setenv("GLOW_PAGER", "true")
-	s := newServer(t)
-	s.loadPlugin()
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
 	s.tmux("set-option", "-g", "@agent_transcript_command", testBinary)
 	s.tmux("set-option", "-g", "@agent_transcript_reader", "glow")
 	s.tmux("run-shell", "-t", s.source, "#{q:@agent_transcript_command} --reader=#{q:@agent_transcript_reader} '#{pane_id}'")
@@ -135,7 +137,7 @@ func TestConfiguredGlowReaderIsUsedByBindingCommand(t *testing.T) {
 	if pane == s.source {
 		pane = panes[1]
 	}
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
 	if s.tmux("display-message", "-p", "-t", pane, "#{pane_current_command}") != "glow" {
 		t.Fatal("binding ignored reader setting")
 	}

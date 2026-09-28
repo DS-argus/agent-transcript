@@ -112,7 +112,7 @@ func quote(arg string) string { return "'" + strings.ReplaceAll(arg, "'", "'\"'\
 func usage() string {
 	return `Usage: agent-transcript [options] [target-pane]
 
-Open or refresh the foreground agent's transcript; capture the screen for other programs.
+Open or refresh the foreground agent's transcript.
   --reader READER                       Markdown viewer (default leaf)
   --position right|left|top|bottom      Viewer split position
   --size SIZE                           Viewer split size (for example 50%)

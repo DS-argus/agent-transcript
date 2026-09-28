@@ -13,7 +13,7 @@ import (
 
 // default configuration
 func defaultOptions() options {
-	return options{reader: reader.Default, position: "right", size: "50%", focus: "on"}
+	return options{reader: reader.Default, position: "top", size: "95%", focus: "on"}
 }
 func parseViewOption(name string) bool {
 	switch name {

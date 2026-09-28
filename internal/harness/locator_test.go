@@ -81,7 +81,7 @@ func TestAmbiguityNeverPicksNewest(t *testing.T) {
 	dir := t.TempDir()
 	first := writeRecords(t, filepath.Join(dir, "rollout-main.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "main", "source": "cli"}})
 	second := writeRecords(t, filepath.Join(dir, "rollout-other.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "other", "source": "cli"}})
-	for _, files := range [][]string{{}, {first, second}} {
+	for _, files := range [][]string{{first, second}, {second, first}} {
 		_, err := resolver(t, dir, files...).Locate("codex", []int{100, 101})
 		if err == nil || !strings.Contains(err.Error(), "expected exactly one") {
 			t.Fatalf("must reject missing or ambiguous sessions: %v", err)

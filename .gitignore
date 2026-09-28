@@ -11,6 +11,7 @@
 /.omx/
 /docs/agent-discovery-investigation.md
 /docs/note.md
+/docs/plugin-architecture-and-distribution.md
 
 # Local diagnostics and scratch directories
 /.*-check.*/

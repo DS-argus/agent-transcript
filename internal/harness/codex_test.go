@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,55 @@ func TestCodexForkHeaderValidationAndHeaderOnlyDiscovery(t *testing.T) {
 	got, err := resolver(t, dir, parent, fork).Locate("codex", []int{100, 101})
 	if err != nil || got.Path != fork {
 		t.Fatalf("read unselected parent's body: %+v %v", got, err)
+	}
+}
+
+func TestCodexMissingOwnedRolloutGivesLaunchGuidance(t *testing.T) {
+	dir := t.TempDir()
+	// A valid unrelated transcript on disk must not become an implicit fallback.
+	writeRecords(t, filepath.Join(dir, "rollout-other.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "other", "source": "cli"}})
+	_, err := resolver(t, dir).Locate("codex", []int{100, 101})
+	if err == nil || !strings.Contains(err.Error(), "No local Codex transcript found") || !strings.Contains(err.Error(), "codex --no-daemon") || !strings.Contains(err.Error(), "finish a conversation turn") {
+		t.Fatalf("missing mode-specific guidance: %v", err)
+	}
+}
+
+func TestCodexInteractiveSessionOrigins(t *testing.T) {
+	for _, source := range []string{"cli", "vscode"} {
+		t.Run(source, func(t *testing.T) {
+			dir := t.TempDir()
+			main := writeRecords(t, filepath.Join(dir, "rollout-main.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "main", "source": source}})
+			files := []string{main}
+			for i, excluded := range []any{
+				"exec", "mcp", "unknown", "other", nil,
+				map[string]any{"custom": "example"},
+				map[string]any{"internal": "guardian"},
+				map[string]any{"subagent": map[string]any{"thread_spawn": map[string]any{"parent_thread_id": "main", "depth": 1}}},
+			} {
+				id := fmt.Sprintf("excluded-%d", i)
+				files = append(files, writeRecords(t, filepath.Join(dir, "rollout-"+id+".jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": id, "source": excluded}}))
+			}
+			got, err := resolver(t, dir, files...).Locate("codex", []int{100, 101})
+			if err != nil || got.Path != main {
+				t.Fatalf("interactive origin %s not selected: %+v %v", source, got, err)
+			}
+			if _, err := resolver(t, dir, files[1:]...).Locate("codex", []int{100, 101}); err == nil {
+				t.Fatal("noninteractive origin selected without an interactive candidate")
+			}
+		})
+	}
+}
+
+func TestCodexForkAcrossInteractiveOrigins(t *testing.T) {
+	dir := t.TempDir()
+	parent := writeRecords(t, filepath.Join(dir, "rollout-parent.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "parent", "source": "vscode"}})
+	fork := writeRecords(t, filepath.Join(dir, "rollout-fork.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "fork", "source": "cli", "forked_from_id": "parent"}})
+	got, err := resolver(t, dir, parent, fork).Locate("codex", []int{100, 101})
+	if err != nil || got.Path != fork {
+		t.Fatalf("cross-origin fork selection failed: %+v %v", got, err)
+	}
+	unrelated := writeRecords(t, filepath.Join(dir, "rollout-other.jsonl"), map[string]any{"type": "session_meta", "payload": map[string]any{"id": "other", "source": "vscode"}})
+	if _, err := resolver(t, dir, parent, fork, unrelated).Locate("codex", []int{100, 101}); err == nil {
+		t.Fatal("unrelated app-server origin bypassed ambiguity check")
 	}
 }

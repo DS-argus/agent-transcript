@@ -45,7 +45,11 @@ func (r Resolver) locateCodex(pids []int) ([]Source, error) {
 		if err != nil {
 			return nil, err
 		}
-		if transcript.String(metadata, "source") != "cli" {
+		// Source records how the session was created, not its current host.
+		// App-server sessions retain "vscode" when resumed in a local TUI.
+		switch transcript.String(metadata, "source") {
+		case "cli", "vscode":
+		default:
 			continue
 		}
 		id := transcript.String(metadata, "id")
@@ -67,12 +71,15 @@ func (r Resolver) locateCodex(pids []int) ([]Source, error) {
 		byID[id] = codexRollout{source: source, parent: parent}
 		matches = append(matches, source)
 	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("No local Codex transcript found. For shared-server sessions, reopen with codex --no-daemon; otherwise finish a conversation turn.")
+	}
 	if len(matches) < 2 {
 		return matches, nil
 	}
 
 	// A fork can keep its original rollout open in the same process. Prefer a
-	// unique descendant only when every owned CLI candidate lies on that one
+	// unique descendant only when every owned interactive candidate lies on that one
 	// parent chain. This is a fork-display policy, not access to the TUI's
 	// in-memory active_thread_id; timestamps and history_base are not authority.
 	parents := make(map[string]bool)

@@ -250,36 +250,38 @@ func writeJSON(t *testing.T, path string, records ...map[string]any) string {
 	}
 	return path
 }
-func TestScreenViewerNavigationFocusAndCleanup(t *testing.T) {
-	s := newServer(t)
-	pane := s.open()
+func TestViewerNavigationFocusAndCleanup(t *testing.T) {
+	readerDocument(t, 80)
+	s := newServer(t, "codex")
+	pane := s.open("--position", "right", "--size", "50%")
 	if s.tmux("display-message", "-p", "-t", "test", "#{pane_id}") != pane {
 		t.Fatal("viewer not focused")
 	}
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
 	if !strings.Contains(s.capture(pane), "한글 snapshot") {
 		t.Fatal("Unicode text lost at bottom")
 	}
 	s.clean()
 	s.tmux("send-keys", "-t", pane, "G")
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
 	s.tmux("send-keys", "-t", s.source, "NEW-QUESTION", "Enter")
 	s.wait(func() bool { return strings.Contains(s.capture(s.source), "ECHO:NEW-QUESTION") })
 	if strings.Contains(s.capture(pane), "NEW-QUESTION") {
 		t.Fatal("snapshot unexpectedly updated")
 	}
-	s.tmux("send-keys", "-t", pane, "g", "/row-0075", "Enter")
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "row-0075") })
+	s.tmux("send-keys", "-t", pane, "g", "/Paragraph to scroll through", "Enter")
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "Paragraph to scroll through") })
 	s.close(pane)
 	if s.tmux("display-message", "-p", "-t", "test", "#{pane_id}") != s.source {
 		t.Fatal("source focus not restored")
 	}
 }
 func TestCopyModeAndForcedClose(t *testing.T) {
-	s := newServer(t)
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
 	s.tmux("copy-mode", "-t", s.source)
 	s.tmux("send-keys", "-X", "-t", s.source, "history-top")
-	pane := s.open()
+	pane := s.open("--position", "bottom", "--size", "10")
 	if s.tmux("display-message", "-p", "-t", s.source, "#{pane_in_mode}") != "1" {
 		t.Fatal("copy mode lost")
 	}
@@ -287,32 +289,32 @@ func TestCopyModeAndForcedClose(t *testing.T) {
 	s.clean()
 }
 
-func TestUnknownForegroundFallsBackToScreenWithoutAdoptingAgentTranscript(t *testing.T) {
-	path := writeJSON(t, filepath.Join(t.TempDir(), "rollout-main.jsonl"),
-		map[string]any{"type": "session_meta", "payload": map[string]any{"id": "main", "source": "cli"}},
-		map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "thread_id": "main", "item": map[string]any{"type": "AgentMessage", "id": "a", "content": []any{map[string]any{"type": "Text", "text": "Explicitly chosen answer"}}}}})
-	t.Setenv("AGENT_TRANSCRIPT_OPEN_FILES", path)
-	s := newServer(t, "yazi")
-	pane := s.open()
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
-	if title := s.tmux("display-message", "-p", "-t", pane, "#{pane_title}"); title != "Screen capture of "+s.source {
-		t.Fatalf("screen fallback title = %q", title)
+func TestUnsupportedForegroundDoesNotOpenViewer(t *testing.T) {
+	for _, name := range []string{"shell", "claude", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			s := newServer(t, name)
+			_, stderr, err := s.launch()
+			if err == nil || !strings.Contains(stderr, "Run this from a supported agent pane.") {
+				t.Fatalf("unsupported foreground diagnostic: %q %v", stderr, err)
+			}
+			if len(s.panes()) != 1 {
+				t.Fatalf("unsupported foreground opened a viewer: %v", s.panes())
+			}
+			s.clean()
+		})
 	}
-	if strings.Contains(s.capture(pane), "Explicitly chosen answer") {
-		t.Fatal("unsupported TUI adopted an owned agent transcript")
-	}
-	s.close(pane)
 }
 func TestRecognizedForegroundWithoutSessionHasDistinctError(t *testing.T) {
 	s := newServer(t, "codex")
 	_, stderr, err := s.launch()
-	if err == nil || !strings.Contains(stderr, "identified codex") || !strings.Contains(stderr, "found 0 sessions") {
+	if err == nil || !strings.Contains(stderr, "No local Codex transcript found") || !strings.Contains(stderr, "codex --no-daemon") {
 		t.Fatalf("wrong discovery-stage error: %s %v", stderr, err)
 	}
 	s.clean()
 }
 func TestLaunchFailuresCleanup(t *testing.T) {
-	s := newServer(t)
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
 	for _, args := range [][]string{{"%999999"}, {"--bad"}} {
 		_, stderr, err := s.launch(args...)
 		if err == nil || stderr == "" {
@@ -324,7 +326,7 @@ func TestLaunchFailuresCleanup(t *testing.T) {
 		s.clean()
 	}
 	s.tmux("resize-window", "-t", "test", "-x", "2", "-y", "30")
-	if _, _, err := s.launch(); err == nil {
+	if _, _, err := s.launch("--position", "right", "--size", "50%"); err == nil {
 		t.Fatal("split should fail")
 	}
 	s.clean()
@@ -348,7 +350,8 @@ func TestLaunchFailuresCleanup(t *testing.T) {
 }
 func TestFailedViewerAndRemainOnExit(t *testing.T) {
 	t.Run("failed shell", func(t *testing.T) {
-		s := newServer(t)
+		readerDocument(t, 0)
+		s := newServer(t, "codex")
 		falsePath, err := exec.LookPath("false")
 		if err != nil {
 			t.Fatal(err)
@@ -361,7 +364,8 @@ func TestFailedViewerAndRemainOnExit(t *testing.T) {
 		s.clean()
 	})
 	t.Run("remain on exit", func(t *testing.T) {
-		s := newServer(t)
+		readerDocument(t, 0)
+		s := newServer(t, "codex")
 		s.tmux("set-option", "-w", "-t", "test", "remain-on-exit", "on")
 		s.close(s.open())
 	})
@@ -456,7 +460,8 @@ func TestCodexOpenFileDiscovery(t *testing.T) {
 	s.close(pane)
 }
 func TestBinaryAndBindingPathsWithShellCharacters(t *testing.T) {
-	s := newServer(t)
+	readerDocument(t, 0)
+	s := newServer(t, "codex")
 	root := filepath.Join(s.dir, "plugin ' space $d")
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0700); err != nil {
 		t.Fatal(err)
@@ -497,21 +502,20 @@ func TestBinaryAndBindingPathsWithShellCharacters(t *testing.T) {
 		}
 	}
 }
-func TestClaudeNativeFallsBackToScreenWithDiscoverableRegistry(t *testing.T) {
+func TestClaudeRegistryIsUnsupportedWithoutOpeningViewer(t *testing.T) {
 	s, path := autoFixtureServer(t, "claude", map[string]any{"type": "assistant", "sessionId": "main", "uuid": "a", "parentUuid": nil,
 		"message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "Claude registry answer"}}}})
-	pane := s.open()
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
-	if title := s.tmux("display-message", "-p", "-t", pane, "#{pane_title}"); title != "Screen capture of "+s.source {
-		t.Fatalf("Claude fallback title = %q", title)
+	_, stderr, err := s.launch()
+	if err == nil || !strings.Contains(stderr, "Run this from a supported agent pane.") {
+		t.Fatalf("unsupported Claude diagnostic: %q %v", stderr, err)
 	}
-	if strings.Contains(s.capture(pane), "Claude registry answer") {
-		t.Fatal("discoverable Claude registry transcript was rendered")
+	if len(s.panes()) != 1 {
+		t.Fatalf("unsupported Claude opened a viewer: %v", s.panes())
 	}
-	s.close(pane)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("original Claude file removed")
 	}
+	s.clean()
 }
 func TestGJCAutomaticMapping(t *testing.T) {
 	s := newServer(t, "gjc")
@@ -558,7 +562,8 @@ func terminalOutput(t *testing.T, file *os.File, duration time.Duration) []byte 
 	return output
 }
 func TestAttachedClientFocusAndQuietBoundaries(t *testing.T) {
-	s := newServer(t)
+	readerDocument(t, 80)
+	s := newServer(t, "codex")
 	tty, _ := attachTestClient(t, s)
 	pane := s.open()
 	terminalOutput(t, tty, 200*time.Millisecond)
@@ -574,7 +579,7 @@ func TestAttachedClientFocusAndQuietBoundaries(t *testing.T) {
 			t.Fatalf("pager rang or flashed: %q", output)
 		}
 	}
-	s.wait(func() bool { return strings.Contains(s.capture(pane), "READY") })
+	s.wait(func() bool { return strings.Contains(s.capture(pane), "END-OF-TRANSCRIPT") })
 	tty.Write([]byte("q"))
 	s.wait(func() bool { return len(s.panes()) == 1 })
 	s.clean()

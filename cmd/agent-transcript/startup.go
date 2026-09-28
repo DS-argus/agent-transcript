@@ -38,7 +38,6 @@ func documentAnchor(path string) (string, error) {
 	for {
 		line, err := lines.ReadString('\n')
 		if anchor := normalizeVisible(line); anchor != "" {
-			// A raw screen capture can start with a very long joined line.
 			// Only require a visible prefix, not text below the first viewport.
 			if runes := []rune(anchor); len(runes) > 32 {
 				anchor = string(runes[:32])

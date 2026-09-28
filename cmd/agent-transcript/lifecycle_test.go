@@ -109,7 +109,7 @@ func TestConcurrentOpenSharesSingleViewer(t *testing.T) {
 func TestSessionSeparation(t *testing.T) {
 	path := readerDocument(t, 30)
 	s := newServer(t, "codex")
-	pane := openReader(t, s, "leaf")
+	pane := openReader(t, s, "leaf", "--position", "right", "--size", "50%")
 	if _, stderr, err := s.launch(); err != nil {
 		t.Fatal(stderr, err)
 	}

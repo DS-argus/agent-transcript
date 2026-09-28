@@ -61,9 +61,6 @@ func waitViewer(ctx context.Context, o options, identity snapshotIdentity, snaps
 				}
 				// Readers may set their own title during initialization.
 				title := "Transcript of " + identity.source
-				if identity.harness == "screen" {
-					title = "Screen capture of " + identity.source
-				}
 				if _, err := tmux(ctx, "select-pane", "-t", viewer, "-T", title); err != nil {
 					return err
 				}
@@ -121,9 +118,6 @@ func open(ctx context.Context, o options) error {
 	if o.focus == "" {
 		o.focus = "on"
 	}
-	if _, err := reader.Prepare(o.reader, os.Environ()); err != nil {
-		return err
-	}
 	source, target, err := sourceForTarget(ctx, o.target)
 	if err != nil {
 		return err
@@ -150,6 +144,9 @@ func open(ctx context.Context, o options) error {
 		if err != nil {
 			return err
 		}
+		if _, err := reader.Prepare(o.reader, os.Environ()); err != nil {
+			return err
+		}
 		if target.owner == "1" && target.signature != identity.signature() {
 			return fmt.Errorf("source session changed; open from the agent pane")
 		}
@@ -157,7 +154,7 @@ func open(ctx context.Context, o options) error {
 		if err != nil {
 			return err
 		}
-		snapshot, err := writeSnapshot(ctx, identity)
+		snapshot, err := writeSnapshot(identity)
 		if err != nil {
 			return err
 		}
