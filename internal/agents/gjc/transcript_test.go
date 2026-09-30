@@ -1,4 +1,4 @@
-package transcript
+package gjc
 
 import (
 	"encoding/json"
@@ -71,7 +71,7 @@ func TestRenderGJCFilteringAndMarkdown(t *testing.T) {
 		gjcHeader("session-main", 5), user, assistant, tool, metadata, injected, repeated, final,
 	})
 
-	document, err := RenderGJC(path)
+	document, err := Render(path)
 	if err != nil {
 		t.Fatalf("RenderGJC: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestRenderGJCAmbiguousBranchesSelectLatestPersistedChain(t *testing.T) {
 	latest := gjcMessage("latest", "a", "assistant", "Latest answer")
 	writeGJCRecords(t, path, []map[string]any{header, user, answer, alternate, latest})
 
-	document, err := RenderGJC(path)
+	document, err := Render(path)
 	if err != nil {
 		t.Fatalf("latest branch rejected: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestRenderGJCContextClearBridgesSegmentsAndExcludesSiblings(t *testing.T) {
 	}
 	writeGJCRecords(t, path, records)
 
-	document, err := RenderGJC(path)
+	document, err := Render(path)
 	if err != nil {
 		t.Fatalf("context-clear history rejected: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestRenderGJCContextClearEdgeCases(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "session.jsonl")
 			writeGJCRecords(t, path, testCase.records)
-			document, err := RenderGJC(path)
+			document, err := Render(path)
 			if testCase.wantError {
 				if err == nil {
 					t.Fatalf("expected no-public-conversation error")
@@ -284,7 +284,7 @@ func TestRenderGJCMessageCustomTypeContextClearIsNotBridged(t *testing.T) {
 		ordinaryRoot,
 	})
 
-	document, err := RenderGJC(path)
+	document, err := Render(path)
 	if err != nil {
 		t.Fatalf("RenderGJC: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestRenderGJCMessageCustomTypeContextClearIsNotBridged(t *testing.T) {
 func TestRenderGJCEmptyFileErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	writeGJCRecords(t, path, nil)
-	if _, err := RenderGJC(path); err == nil {
+	if _, err := Render(path); err == nil {
 		t.Fatal("empty GJC file rendered without an error")
 	}
 }
@@ -354,7 +354,7 @@ func TestRenderGJCRejectsMalformedSessionGraphs(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			writeGJCRecords(t, path, testCase.records)
-			if _, err := RenderGJC(path); err == nil {
+			if _, err := Render(path); err == nil {
 				t.Fatalf("RenderGJC unexpectedly succeeded")
 			}
 		})
@@ -379,7 +379,7 @@ func TestRenderGJCHandlesPartialTailAndCorruptCompleteRecord(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
 	}
-	document, err := RenderGJC(path)
+	document, err := Render(path)
 	if err != nil {
 		t.Fatalf("partial tail: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestRenderGJCHandlesPartialTailAndCorruptCompleteRecord(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{\"type\":\"session\",\"version\":5,\"id\":\"session-main\"}\nnot-json\n"), 0o600); err != nil {
 		t.Fatalf("write corrupt session: %v", err)
 	}
-	if _, err := RenderGJC(path); err == nil || !strings.Contains(err.Error(), "Invalid GJC JSONL") {
+	if _, err := Render(path); err == nil || !strings.Contains(err.Error(), "Invalid GJC JSONL") {
 		t.Fatalf("corrupt complete record error = %v", err)
 	}
 }
@@ -408,7 +408,7 @@ func TestGJCHeaderPatchesDoNotBecomeGraphEntries(t *testing.T) {
 		gjcMessage("a", "u", "assistant", "Answer"),
 		{"type": "header_patch", "patch": map[string]any{"starred": false}},
 	})
-	doc, err := RenderGJC(path)
+	doc, err := Render(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestGJCRejectsMalformedHeaderPatches(t *testing.T) {
 	} {
 		path := filepath.Join(t.TempDir(), "session.jsonl")
 		writeGJCRecords(t, path, []map[string]any{gjcHeader("main", 5), gjcMessage("u", nil, "user", "Question"), patch})
-		if _, err := RenderGJC(path); err == nil || !strings.Contains(err.Error(), "header_patch") {
+		if _, err := Render(path); err == nil || !strings.Contains(err.Error(), "header_patch") {
 			t.Fatalf("malformed patch accepted: %v", err)
 		}
 	}

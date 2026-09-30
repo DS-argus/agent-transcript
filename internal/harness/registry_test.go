@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"agent-transcript/internal/agents"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -23,11 +24,11 @@ func TestRegisteredAdapterProvidesAllFourStages(t *testing.T) {
 		Detect: func(records []map[string]any) (string, bool) {
 			return "example-id", len(records) > 0 && transcript.String(records[0], "type") == "example-session"
 		},
-		Locate: func(_ Resolver, pids []int) ([]Source, error) {
+		Locate: func(_ Resolver, pids []int) (agents.Source, error) {
 			if !reflect.DeepEqual(pids, []int{123}) {
 				t.Fatalf("wrong owners: %v", pids)
 			}
-			return []Source{{"example", path}}, nil
+			return agents.Source{Harness: "example", Path: path}, nil
 		},
 		Render: func(renderPath string) (transcript.Document, error) {
 			if renderPath != path {
@@ -112,7 +113,7 @@ func TestResolveOnlyReadsIdentifiedHarnessAndOwner(t *testing.T) {
 		return nil, fmt.Errorf("unexpected inspection: %s %v", name, args)
 	}}
 	got, err := r.Resolve(100)
-	if err != nil || got != (Source{"gjc", file}) {
+	if err != nil || got != (agents.Source{Harness: "gjc", Path: file}) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
@@ -134,30 +135,28 @@ func TestUnsupportedForegroundStopsBeforeAnySessionInspection(t *testing.T) {
 	}
 }
 
-func TestFirstReleaseExcludesClaudeAdapter(t *testing.T) {
-	if got := Names(); !reflect.DeepEqual(got, []string{"codex", "gjc"}) {
-		t.Fatalf("unexpected released agents: %v", got)
+func TestAllSupportedAgentsHaveRegisteredContracts(t *testing.T) {
+	if got := Names(); !reflect.DeepEqual(got, []string{"codex", "gjc", "claude"}) {
+		t.Fatalf("unexpected agents: %v", got)
 	}
-	if _, ok := Lookup("claude"); ok {
-		t.Fatal("Claude adapter is enabled")
+	if _, ok := Lookup("claude"); !ok {
+		t.Fatal("Claude adapter missing")
 	}
-	if _, ok := HarnessForExecutable("/usr/local/bin/claude"); ok {
-		t.Fatal("Claude executable is enabled")
+	if name, ok := HarnessForExecutable("/usr/local/bin/claude"); !ok || name != "claude" {
+		t.Fatal("Claude executable missing")
 	}
-	if _, ok := HarnessForNodeScript("/opt/node_modules/@anthropic-ai/claude-code/cli.js"); ok {
-		t.Fatal("Claude launcher is enabled")
+	if name, ok := HarnessForNodeScript("/opt/node_modules/@anthropic-ai/claude-code/cli.js"); !ok || name != "claude" {
+		t.Fatal("Claude launcher missing")
 	}
 	path := writeRecords(t, filepath.Join(t.TempDir(), "claude.jsonl"), map[string]any{
 		"type": "user", "sessionId": "main", "uuid": "u", "parentUuid": nil,
-		"message": map[string]any{"role": "user", "content": "Retained Claude parser"},
+		"message": map[string]any{"role": "user", "content": "Registered Claude parser"},
 	})
-	if _, _, err := DetectFile(path); err == nil {
-		t.Fatal("disabled Claude format detected")
+	kind, id, err := DetectFile(path)
+	if err != nil || kind != "claude" || id != "main" {
+		t.Fatalf("Claude detection: %s %s %v", kind, id, err)
 	}
-	if _, err := RenderFile("claude", path); err == nil {
-		t.Fatal("disabled Claude adapter rendered")
-	}
-	if doc, err := transcript.RenderClaude(path); err != nil || !strings.Contains(doc.Markdown, "Retained Claude parser") {
-		t.Fatalf("preserved Claude parser broken: %+v %v", doc, err)
+	if doc, err := RenderFile("claude", path); err != nil || !strings.Contains(doc.Markdown, "Registered Claude parser") {
+		t.Fatalf("Claude render: %+v %v", doc, err)
 	}
 }

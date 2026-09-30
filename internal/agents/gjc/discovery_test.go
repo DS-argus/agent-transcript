@@ -1,4 +1,4 @@
-package harness
+package gjc
 
 import (
 	"fmt"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"agent-transcript/internal/agents"
 )
 
 func TestGJCOfflineDiscoverySelectsForkAndIgnoresGCRegistration(t *testing.T) {
@@ -23,8 +25,8 @@ func TestGJCOfflineDiscoverySelectsForkAndIgnoresGCRegistration(t *testing.T) {
 			if oldFile {
 				writeGJCHeader(t, dir, "initial")
 			}
-			got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
-			if err != nil || got != (Source{"gjc", want}) {
+			got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
+			if err != nil || got != (agents.Source{Harness: "gjc", Path: want}) {
 				t.Fatalf("selected source = %+v, err = %v", got, err)
 			}
 		})
@@ -37,8 +39,8 @@ func TestGJCOfflineDirectOnlyRegistration(t *testing.T) {
 	event := gjcTestEvent(t, 4, 1, "direct", "host_registered", 100, 0, dir, "darwin:1:2", now, false, false)
 	writeGJCIndexFixture(t, dir, false, 0, nil, [][]byte{event})
 	want := writeGJCHeader(t, dir, "direct")
-	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
-	if err != nil || got != (Source{"gjc", want}) {
+	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
+	if err != nil || got != (agents.Source{Harness: "gjc", Path: want}) {
 		t.Fatalf("direct-only source = %+v, err = %v", got, err)
 	}
 }
@@ -48,13 +50,10 @@ func TestGJCOfflineDoesNotInvokeSDK(t *testing.T) {
 	now := time.Now().UnixMilli()
 	event := gjcTestEvent(t, 4, 1, "main", "host_registered", 100, 1, filepath.Join(dir, "state", "main"), "darwin:1:2", now, false, false)
 	writeGJCIndexFixture(t, dir, false, 0, nil, [][]byte{event})
+	t.Setenv("PATH", "")
 	want := writeGJCHeader(t, dir, "main")
 	r := offlineGJCResolver(dir, "darwin:1:2")
-	r.Run = func(string, ...string) ([]byte, error) {
-		t.Fatal("GJC discovery invoked an external command")
-		return nil, nil
-	}
-	got, err := r.Locate("gjc", []int{100})
+	got, err := r.Locate([]int{100})
 	if err != nil || got.Path != want {
 		t.Fatalf("offline source = %+v, err = %v", got, err)
 	}
@@ -72,7 +71,7 @@ func TestGJCOfflineHeaderOnlyValidation(t *testing.T) {
 	}
 	_, _ = file.WriteString("not-jsonl\n")
 	_ = file.Close()
-	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
+	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
 	if err != nil || got.Path != path {
 		t.Fatalf("header-only discovery failed: %+v %v", got, err)
 	}
@@ -82,7 +81,7 @@ func TestGJCOfflineRejectsStalePIDIdentity(t *testing.T) {
 	dir := t.TempDir()
 	event := gjcTestEvent(t, 4, 1, "main", "host_registered", 100, 1, filepath.Join(dir, "state", "main"), "darwin:old", time.Now().UnixMilli(), false, false)
 	writeGJCIndexFixture(t, dir, false, 0, nil, [][]byte{event})
-	if _, err := offlineGJCResolver(dir, "darwin:new").Locate("gjc", []int{100}); err == nil || !strings.Contains(err.Error(), "identity") {
+	if _, err := offlineGJCResolver(dir, "darwin:new").Locate([]int{100}); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("stale PID identity was accepted: %v", err)
 	}
 }
@@ -97,7 +96,7 @@ func TestGJCOfflineSeparatesHeartbeatFromTerminalLifecycle(t *testing.T) {
 		gjcTestEvent(t, 4, 3, "main", "host_heartbeat", 100, 1, root, "darwin:1:2", now, false, false),
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
-	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil || !strings.Contains(err.Error(), "endpoint") {
+	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil || !strings.Contains(err.Error(), "endpoint") {
 		t.Fatalf("stale heartbeat resurrected terminal identity: %v", err)
 	}
 }
@@ -110,7 +109,7 @@ func TestGJCOfflineAmbiguousRootsFailClosed(t *testing.T) {
 		gjcTestEvent(t, 4, 2, "main", "host_registered", 100, 1, filepath.Join(dir, "state", "b"), "darwin:1:2", now, false, false),
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
-	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous roots were accepted: %v", err)
 	}
 }
@@ -127,7 +126,7 @@ func TestGJCOfflineTerminalRootDoesNotBeatLiveRoot(t *testing.T) {
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
 	want := writeGJCHeader(t, dir, "main")
-	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
+	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
 	if err != nil || got.Path != want {
 		t.Fatalf("live root was not selected: %+v %v", got, err)
 	}
@@ -144,7 +143,7 @@ func TestGJCOfflinePreferredDeletionSuppressesOtherRoots(t *testing.T) {
 		gjcTestEvent(t, 4, 3, "main", "host_registered", 100, 1, liveRoot, "darwin:1:2", now, false, false),
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
-	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil {
+	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil {
 		t.Fatal("preferred deleted session root was allowed to resurrect")
 	}
 }
@@ -158,7 +157,7 @@ func TestGJCOfflineRetiredEndpointFencesDirectFallback(t *testing.T) {
 	retired := gjcTestEvent(t, 4, 3, "endpoint", "host_unregistered", 100, 1, endpointRoot, "darwin:1:2", now, false, false)
 	writeGJCIndexFixture(t, dir, false, 0, nil, [][]byte{direct, endpoint, retired})
 	writeGJCHeader(t, dir, "direct")
-	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil || !strings.Contains(err.Error(), "endpoint") {
+	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil || !strings.Contains(err.Error(), "endpoint") {
 		t.Fatalf("retired endpoint allowed direct fallback: %v", err)
 	}
 }
@@ -183,7 +182,7 @@ func TestGJCOfflineRecheckAllowsHeartbeatOnlyChange(t *testing.T) {
 		}
 		return "darwin:1:2", nil
 	}
-	got, err := r.Locate("gjc", []int{100})
+	got, err := r.Locate([]int{100})
 	if err != nil || got.Path != want {
 		t.Fatalf("heartbeat-only recheck changed authority: %+v %v", got, err)
 	}
@@ -200,7 +199,7 @@ func TestGJCOfflineRecheckRejectsSamePIDSessionSwitch(t *testing.T) {
 	writeGJCHeader(t, dir, "old")
 	calls := 0
 	r := Resolver{
-		GJCDir: dir,
+		Dir: dir,
 		Identity: func(int) (string, error) {
 			calls++
 			if calls == 1 {
@@ -216,19 +215,15 @@ func TestGJCOfflineRecheckRejectsSamePIDSessionSwitch(t *testing.T) {
 			}
 			return "darwin:1:2", nil
 		},
-		Run: func(string, ...string) ([]byte, error) { return nil, fmt.Errorf("unexpected external command") },
 	}
-	if _, err := r.Locate("gjc", []int{100}); err == nil || !strings.Contains(err.Error(), "changed") {
+	if _, err := r.Locate([]int{100}); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("same-PID session switch was accepted: %v", err)
 	}
 }
 func offlineGJCResolver(agentDir, identity string) Resolver {
 	return Resolver{
-		GJCDir:   agentDir,
+		Dir:      agentDir,
 		Identity: func(int) (string, error) { return identity, nil },
-		Run: func(string, ...string) ([]byte, error) {
-			return nil, fmt.Errorf("unexpected external command")
-		},
 	}
 }
 
@@ -256,7 +251,7 @@ func TestGJCOfflineHeartbeatRemainsIndependentOfLaterLifecycle(t *testing.T) {
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
 	want := writeGJCHeader(t, dir, "main")
-	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
+	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
 	if err != nil || got.Path != want {
 		t.Fatalf("later lifecycle discarded fresh heartbeat: %+v %v", got, err)
 	}
@@ -273,7 +268,7 @@ func TestGJCOfflineUncertainOrDeadCompetingRootFences(t *testing.T) {
 			}
 			writeGJCIndexFixture(t, dir, false, 0, nil, events)
 			writeGJCHeader(t, dir, "main")
-			if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil {
+			if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil {
 				t.Fatal("unresolved competing root was ignored")
 			}
 		})
@@ -308,7 +303,7 @@ func TestGJCOfflineAdmissionRejectsOldIncarnationAndTombstoneRevival(t *testing.
 	}
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
 	want := writeGJCHeader(t, dir, "main")
-	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100})
+	got, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100})
 	if err != nil || got.Path != want {
 		t.Fatalf("old incarnation retired current host: %+v %v", got, err)
 	}
@@ -318,7 +313,7 @@ func TestGJCOfflineAdmissionRejectsOldIncarnationAndTombstoneRevival(t *testing.
 		gjcTestEvent(t, 4, 6, "main", "host_heartbeat", 100, 1, root, "darwin:1:2", now, false, false),
 	)
 	writeGJCIndexFixture(t, dir, false, 0, nil, events)
-	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate("gjc", []int{100}); err == nil {
+	if _, err := offlineGJCResolver(dir, "darwin:1:2").Locate([]int{100}); err == nil {
 		t.Fatal("late events resurrected deleted session")
 	}
 }

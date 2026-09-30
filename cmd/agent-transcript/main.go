@@ -19,6 +19,7 @@ var version = "dev"
 type options struct {
 	target, notifyClient, reader string
 	position, size, focus        string
+	sizeExplicit                 bool
 	help, version                bool
 }
 
@@ -115,7 +116,7 @@ func usage() string {
 Open or refresh the foreground agent's transcript.
   --reader READER                       Markdown viewer (default leaf)
   --position right|left|top|bottom      Viewer split position
-  --size SIZE                           Viewer split size (for example 50%)
+  --size SIZE                           Viewer size; overrides agent settings
   --focus on|off                        Focus the viewer after startup
   --notify-client CLIENT                Brief error notice for this tmux client
   --version                             Print version

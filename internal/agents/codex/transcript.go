@@ -1,41 +1,43 @@
-package transcript
+package codex
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"agent-transcript/internal/transcript"
 )
 
 const codexImagePlaceholder = "[Image attachment omitted]"
 
-// RenderCodex renders the completed public messages from a Codex rollout.
+// Render renders the completed public messages from a Codex rollout.
 //
 // Codex emits several record families in the same JSONL stream. Only
 // event_msg/item_completed records for UserMessage and AgentMessage items are
 // public transcript content; all other records are deliberately ignored.
-func RenderCodex(path string) (Document, error) {
-	records, partial, err := ReadJSONL(path)
+func Render(path string) (transcript.Document, error) {
+	records, partial, err := transcript.ReadJSONL(path)
 	if err != nil {
-		return Document{}, fmt.Errorf("invalid Codex JSONL at %s: %w", path, err)
+		return transcript.Document{}, fmt.Errorf("invalid Codex JSONL at %s: %w", path, err)
 	}
-	if len(records) == 0 || String(records[0], "type") != "session_meta" {
-		return Document{}, fmt.Errorf("not a Codex rollout: %s", path)
+	if len(records) == 0 || transcript.String(records[0], "type") != "session_meta" {
+		return transcript.Document{}, fmt.Errorf("not a Codex rollout: %s", path)
 	}
 
-	metadata := Object(records[0], "payload")
+	metadata := transcript.Object(records[0], "payload")
 	sessionID, ok := metadata["id"].(string)
 	if !ok || sessionID == "" {
-		return Document{}, fmt.Errorf("missing Codex session ID: %s", path)
+		return transcript.Document{}, fmt.Errorf("missing Codex session ID: %s", path)
 	}
 
 	messages := make([]string, 0)
 	seen := make(map[string]struct{})
 	for index, record := range records {
-		if String(record, "type") != "event_msg" {
+		if transcript.String(record, "type") != "event_msg" {
 			continue
 		}
-		event := Object(record, "payload")
-		if String(event, "type") != "item_completed" {
+		event := transcript.Object(record, "payload")
+		if transcript.String(event, "type") != "item_completed" {
 			continue
 		}
 		if threadID, present := event["thread_id"]; present && threadID != nil {
@@ -45,9 +47,9 @@ func RenderCodex(path string) (Document, error) {
 			}
 		}
 
-		item := Object(event, "item")
+		item := transcript.Object(event, "item")
 		role := ""
-		switch String(item, "type") {
+		switch transcript.String(item, "type") {
 		case "UserMessage":
 			role = "User"
 		case "AgentMessage":
@@ -74,7 +76,7 @@ func RenderCodex(path string) (Document, error) {
 
 		content, err := codexContent(item)
 		if err != nil {
-			return Document{}, fmt.Errorf("invalid Codex message content at %s:%d: %w", path, index+1, err)
+			return transcript.Document{}, fmt.Errorf("invalid Codex message content at %s:%d: %w", path, index+1, err)
 		}
 		parts := make([]string, 0, len(content))
 		for _, rawPart := range content {
@@ -82,7 +84,7 @@ func RenderCodex(path string) (Document, error) {
 			if !ok {
 				continue
 			}
-			switch String(part, "type") {
+			switch transcript.String(part, "type") {
 			case "text", "Text":
 				if text, ok := part["text"].(string); ok {
 					parts = append(parts, text)
@@ -101,16 +103,16 @@ func RenderCodex(path string) (Document, error) {
 		messages = append(messages, fmt.Sprintf("## %s\n\n%s", role, text))
 	}
 	if len(messages) == 0 {
-		return Document{}, fmt.Errorf("No saved public messages in this Codex session yet. Complete a conversation turn and try again.")
+		return transcript.Document{}, fmt.Errorf("No saved public messages in this Codex session yet. Complete a conversation turn and try again.")
 	}
-	return NewDocument("Codex", sessionID, messages, partial)
+	return transcript.NewDocument("Codex", sessionID, messages, partial)
 }
 
 func codexContent(item map[string]any) ([]any, error) {
 	if _, present := item["content"]; !present {
 		return nil, nil
 	}
-	content := Array(item, "content")
+	content := transcript.Array(item, "content")
 	if content == nil {
 		return nil, fmt.Errorf("content must be an array")
 	}

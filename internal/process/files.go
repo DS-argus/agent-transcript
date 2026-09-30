@@ -1,4 +1,4 @@
-package harness
+package process
 
 import (
 	"errors"
@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-func (r Resolver) openFiles(pids []int) ([]string, error) {
+func OpenFiles(pids []int, run Runner) ([]string, error) {
 	ids := make([]string, len(pids))
 	for i, pid := range pids {
 		ids[i] = strconv.Itoa(pid)
 	}
-	data, err := r.Run("lsof", "-a", "-p", strings.Join(ids, ","), "-Fn")
+	data, err := run("lsof", "-a", "-p", strings.Join(ids, ","), "-Fn")
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 {

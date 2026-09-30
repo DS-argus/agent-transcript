@@ -16,6 +16,7 @@ func TestIdentifyForegroundDirectHarnesses(t *testing.T) {
 	}{
 		{name: "codex", command: "codex", harness: "codex"},
 		{name: "gjc", command: "gjc", harness: "gjc"},
+		{name: "claude", command: "claude", harness: "claude"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			table := fmt.Sprintf("100 1 100 200 zsh\n200 100 200 200 %s\n", test.command)
@@ -32,7 +33,7 @@ func TestIdentifyForegroundDirectHarnesses(t *testing.T) {
 	}
 }
 
-func TestIdentifyForegroundRejectsClaudeSentinels(t *testing.T) {
+func TestIdentifyForegroundClaudeOwnedLaunchers(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		table  string
@@ -44,9 +45,9 @@ func TestIdentifyForegroundRejectsClaudeSentinels(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := IdentifyForeground(100, foregroundFakeRun(test.table, test.output))
-			if err == nil || !errors.Is(err, ErrUnsupportedForeground) {
-				t.Fatalf("error = %v, want unsupported Claude foreground", err)
+			got, err := IdentifyForeground(100, foregroundFakeRun(test.table, test.output))
+			if err != nil || !reflect.DeepEqual(got, Foreground{Harness: "claude", PIDs: []int{200}}) {
+				t.Fatalf("foreground = %+v, error = %v", got, err)
 			}
 		})
 	}

@@ -8,12 +8,13 @@ import (
 	"strconv"
 	"strings"
 
+	"agent-transcript/internal/harness"
 	"agent-transcript/internal/reader"
 )
 
 // default configuration
 func defaultOptions() options {
-	return options{reader: reader.Default, position: "top", size: "95%", focus: "on"}
+	return options{reader: reader.Default, position: "top", size: "90%", focus: "on"}
 }
 func parseViewOption(name string) bool {
 	switch name {
@@ -28,6 +29,7 @@ func setViewOption(o *options, name, value string) error {
 		o.position = value
 	case "--size":
 		o.size = value
+		o.sizeExplicit = true
 	case "--focus":
 		o.focus = value
 	default:
@@ -74,14 +76,18 @@ type managedBinding struct{ Table, Key, Command, Listing string }
 const bindingsOption = "@agent_transcript_bindings"
 
 func bindingCommand() string {
-	return "#{q:@agent_transcript_command} --reader=#{q:@agent_transcript_reader} --position=#{q:@agent_transcript_position} --size=#{q:@agent_transcript_size} --focus=#{q:@agent_transcript_focus} --notify-client=#{q:client_name} '#{pane_id}'"
+	return "#{q:@agent_transcript_command} --reader=#{q:@agent_transcript_reader} --position=#{q:@agent_transcript_position} --focus=#{q:@agent_transcript_focus} --notify-client=#{q:client_name} '#{pane_id}'"
 }
 
 // configure registers keys after validating configuration. Previous keys are
 // removed only when their exact saved binding still belongs to this plugin.
 func configure(ctx context.Context) error {
 	values := map[string]string{}
-	for _, key := range []string{"reader", "position", "size", "focus", "key", "copy_mode_key"} {
+	keys := []string{"reader", "position", "size_all", "focus", "key", "copy_mode_key"}
+	for _, name := range harness.Names() {
+		keys = append(keys, "size_"+name)
+	}
+	for _, key := range keys {
 		value, err := tmux(ctx, "show-option", "-gqv", "@agent_transcript_"+key)
 		if err != nil {
 			return err
@@ -90,11 +96,23 @@ func configure(ctx context.Context) error {
 	}
 	o := defaultOptions()
 	o.reader = values["reader"]
-	for _, key := range []string{"position", "size", "focus"} {
+	for _, key := range []string{"position", "focus"} {
 		_ = setViewOption(&o, "--"+key, values[key])
+	}
+	if value := values["size_all"]; value != "" {
+		o.size = value
 	}
 	if err := validateViewOptions(o); err != nil {
 		return err
+	}
+	for _, name := range harness.Names() {
+		if value := values["size_"+name]; value != "" {
+			profile := o
+			profile.size = value
+			if err := validateViewOptions(profile); err != nil {
+				return fmt.Errorf("@agent_transcript_size_%s: %w", name, err)
+			}
+		}
 	}
 	if !reader.Supported(o.reader) {
 		return fmt.Errorf("unsupported reader: %s", o.reader)
@@ -180,4 +198,28 @@ func configure(ctx context.Context) error {
 	}
 	_, err = tmux(ctx, "set-option", "-g", bindingsOption, string(data))
 	return err
+}
+
+// resolveViewSize selects geometry only after resolving the source agent, even
+// when the invoking pane is a viewer. Explicit CLI geometry takes precedence.
+func resolveViewSize(ctx context.Context, o options, name string) (options, error) {
+	if _, ok := harness.Lookup(name); !ok {
+		return o, fmt.Errorf("unsupported size profile: %s", name)
+	}
+	if !o.sizeExplicit {
+		value, err := tmux(ctx, "show-option", "-gqv", "@agent_transcript_size_"+name)
+		if err != nil {
+			return o, err
+		}
+		if value == "" {
+			value, err = tmux(ctx, "show-option", "-gqv", "@agent_transcript_size_all")
+			if err != nil {
+				return o, err
+			}
+		}
+		if value != "" {
+			o.size = value
+		}
+	}
+	return o, validateViewOptions(o)
 }

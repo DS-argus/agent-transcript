@@ -103,8 +103,8 @@ func TestDefaultLayoutUsesTopViewerAndViewerPercentage(t *testing.T) {
 	if paneTop != 0 || sourceTop <= paneTop {
 		t.Fatalf("default layout is not top: viewer top=%d source top=%d", paneTop, sourceTop)
 	}
-	if viewerHeight*100 < windowHeight*90 || sourceHeight >= viewerHeight {
-		t.Fatalf("default viewer size is not approximately 95%%: viewer=%d source=%d window=%d", viewerHeight, sourceHeight, windowHeight)
+	if viewerHeight != windowHeight*90/100 || viewerHeight+sourceHeight+1 != windowHeight {
+		t.Fatalf("default viewer size is not 90%%: viewer=%d source=%d window=%d", viewerHeight, sourceHeight, windowHeight)
 	}
 	s.close(pane)
 }

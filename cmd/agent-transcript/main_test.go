@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	agents "agent-transcript/internal/harness"
+	"agent-transcript/internal/process"
 	"golang.org/x/sys/unix"
 )
 
@@ -122,7 +122,7 @@ func newServer(t *testing.T, agentName ...string) *server {
 		t.Fatal(err)
 	}
 	s := &server{t: t, dir: dir, socket: filepath.Join(dir, "tmux.sock")}
-	s.env = setEnv(os.Environ(), map[string]string{"HOME": dir, "TMPDIR": filepath.Join(dir, "tmp"), "XDG_CONFIG_HOME": filepath.Join(dir, "config"), "GJC_CODING_AGENT_DIR": filepath.Join(dir, "gjc"), "CLAUDE_CONFIG_DIR": filepath.Join(dir, "claude"), "TERM": "xterm-256color", "AGENT_TRANSCRIPT_SOURCE_HELPER": "1"})
+	s.env = setEnv(os.Environ(), map[string]string{"HOME": dir, "TMPDIR": filepath.Join(dir, "tmp"), "XDG_CONFIG_HOME": filepath.Join(dir, "config"), "GJC_CODING_AGENT_DIR": filepath.Join(dir, "gjc"), "CLAUDE_CONFIG_DIR": filepath.Join(dir, ".claude"), "TERM": "xterm-256color", "AGENT_TRANSCRIPT_SOURCE_HELPER": "1"})
 	s.env = append(s.env, "XDG_CACHE_HOME="+filepath.Join(dir, "cache"))
 	t.Cleanup(func() { s.rawTmux("kill-server") })
 	exe, err := os.Executable()
@@ -290,7 +290,7 @@ func TestCopyModeAndForcedClose(t *testing.T) {
 }
 
 func TestUnsupportedForegroundDoesNotOpenViewer(t *testing.T) {
-	for _, name := range []string{"shell", "claude", "opencode"} {
+	for _, name := range []string{"shell", "opencode"} {
 		t.Run(name, func(t *testing.T) {
 			s := newServer(t, name)
 			_, stderr, err := s.launch()
@@ -396,25 +396,14 @@ func autoFixtureServer(t *testing.T, harness string, records ...map[string]any) 
 	var path string
 	switch harness {
 	case "claude":
-		path = writeJSON(t, filepath.Join(s.dir, "claude", "projects", "project", "main.jsonl"), records...)
-		pid, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", s.source, "#{pane_pid}"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		start, err := agents.Run("ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
-		if err != nil {
-			t.Fatal(err)
-		}
-		writeJSON(t, filepath.Join(s.dir, "claude", "sessions", strconv.Itoa(pid)+".json"), map[string]any{
-			"pid": pid, "sessionId": "main", "procStart": strings.TrimSpace(string(start)),
-			"pidDomain": runtime.GOOS, "kind": "interactive", "entrypoint": "cli",
-		})
+		path = writeJSON(t, filepath.Join(s.dir, ".claude", "projects", "project", "main.jsonl"), records...)
+		writeClaudeRegistration(t, s, "main")
 	case "gjc":
 		pid, err := strconv.Atoi(s.tmux("display-message", "-p", "-t", s.source, "#{pane_pid}"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		identity, err := agents.ProcessIdentity(pid)
+		identity, err := process.ProcessIdentity(pid)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -427,7 +416,7 @@ func autoFixtureServer(t *testing.T, harness string, records ...map[string]any) 
 }
 
 func TestSupportedHarnessesExplicitRendering(t *testing.T) {
-	for _, harness := range []string{"codex", "gjc"} {
+	for _, harness := range []string{"codex", "gjc", "claude"} {
 		t.Run(harness, func(t *testing.T) {
 			var records []map[string]any
 			switch harness {
@@ -435,6 +424,8 @@ func TestSupportedHarnessesExplicitRendering(t *testing.T) {
 				records = []map[string]any{{"type": "session_meta", "payload": map[string]any{"id": "main", "source": "cli"}}, {"type": "event_msg", "payload": map[string]any{"type": "item_completed", "thread_id": "main", "turn_id": "t", "item": map[string]any{"type": "AgentMessage", "id": "a", "content": []any{map[string]any{"type": "Text", "text": "**Clean answer**"}}}}}}
 			case "gjc":
 				records = []map[string]any{{"type": "session", "version": 5, "id": "main"}, {"type": "message", "id": "a", "parentId": nil, "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "**Clean answer**"}}, "stopReason": "stop"}}}
+			case "claude":
+				records = []map[string]any{claudeMessage("main", "a", "**Clean answer**")}
 			}
 			s, path := autoFixtureServer(t, harness, records...)
 			pane := s.open()
@@ -502,25 +493,26 @@ func TestBinaryAndBindingPathsWithShellCharacters(t *testing.T) {
 		}
 	}
 }
-func TestClaudeRegistryIsUnsupportedWithoutOpeningViewer(t *testing.T) {
-	s, path := autoFixtureServer(t, "claude", map[string]any{"type": "assistant", "sessionId": "main", "uuid": "a", "parentUuid": nil,
-		"message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "Claude registry answer"}}}})
-	_, stderr, err := s.launch()
-	if err == nil || !strings.Contains(stderr, "Run this from a supported agent pane.") {
-		t.Fatalf("unsupported Claude diagnostic: %q %v", stderr, err)
+func TestClaudeRegistryOpensViewerAndPreservesOriginal(t *testing.T) {
+	s, path := autoFixtureServer(t, "claude", claudeMessage("main", "a", "Claude registry answer"))
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(s.panes()) != 1 {
-		t.Fatalf("unsupported Claude opened a viewer: %v", s.panes())
+	pane := s.open()
+	if !strings.Contains(s.capture(pane), "Claude registry answer") {
+		t.Fatal("owned Claude transcript not displayed")
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatal("original Claude file removed")
+	s.close(pane)
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(original, got) {
+		t.Fatalf("original Claude transcript changed: %v", err)
 	}
-	s.clean()
 }
 func TestGJCAutomaticMapping(t *testing.T) {
 	s := newServer(t, "gjc")
 	pid, _ := strconv.Atoi(s.tmux("display-message", "-p", "-t", s.source, "#{pane_pid}"))
-	identity, err := agents.ProcessIdentity(pid)
+	identity, err := process.ProcessIdentity(pid)
 	if err != nil {
 		t.Skip(err)
 	}

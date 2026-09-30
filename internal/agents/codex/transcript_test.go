@@ -1,4 +1,4 @@
-package transcript
+package codex
 
 import (
 	"bytes"
@@ -61,7 +61,7 @@ func writeCodexRecords(t *testing.T, records ...map[string]any) string {
 	return path
 }
 
-func TestRenderCodexFiltersPrivateAndOtherThreadRecords(t *testing.T) {
+func TestRenderFiltersPrivateAndOtherThreadRecords(t *testing.T) {
 	answer := codexMessage("AgentMessage", "## Heading\n\n```python\nprint(1)\n```", "a1", "main", "t1")
 	records := []map[string]any{
 		codexMeta("main"),
@@ -77,9 +77,9 @@ func TestRenderCodexFiltersPrivateAndOtherThreadRecords(t *testing.T) {
 		codexMessage("AgentMessage", answer["payload"].(map[string]any)["item"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string), "a3", "main", "t2"),
 	}
 
-	document, err := RenderCodex(writeCodexRecords(t, records...))
+	document, err := Render(writeCodexRecords(t, records...))
 	if err != nil {
-		t.Fatalf("RenderCodex: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	if document.Harness != "codex" {
 		t.Fatalf("Harness = %q, want codex", document.Harness)
@@ -105,7 +105,7 @@ func TestRenderCodexFiltersPrivateAndOtherThreadRecords(t *testing.T) {
 	}
 }
 
-func TestRenderCodexPreservesMarkdownAndOmitsImageData(t *testing.T) {
+func TestRenderPreservesMarkdownAndOmitsImageData(t *testing.T) {
 	content := []any{
 		map[string]any{"type": "text", "text": "before"},
 		map[string]any{"type": "Text", "text": "## original heading\n\n- item"},
@@ -115,9 +115,9 @@ func TestRenderCodexPreservesMarkdownAndOmitsImageData(t *testing.T) {
 		"not an object",
 	}
 	path := writeCodexRecords(t, codexMeta("main"), codexMessageParts("UserMessage", "u1", "main", "t1", content))
-	document, err := RenderCodex(path)
+	document, err := Render(path)
 	if err != nil {
-		t.Fatalf("RenderCodex: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	for _, included := range []string{"before", "## original heading", "- item", codexImagePlaceholder} {
 		if !strings.Contains(document.Markdown, included) {
@@ -131,7 +131,7 @@ func TestRenderCodexPreservesMarkdownAndOmitsImageData(t *testing.T) {
 	}
 }
 
-func TestRenderCodexDeduplicatesOnlyByTurnAndID(t *testing.T) {
+func TestRenderDeduplicatesOnlyByTurnAndID(t *testing.T) {
 	records := []map[string]any{
 		codexMeta("main"),
 		codexMessage("UserMessage", "same text", "m1", "main", "t1"),
@@ -141,9 +141,9 @@ func TestRenderCodexDeduplicatesOnlyByTurnAndID(t *testing.T) {
 		codexMessageParts("UserMessage", "", "main", "t3", []any{map[string]any{"type": "text", "text": "no ID"}}),
 		codexMessageParts("UserMessage", "", "main", "t3", []any{map[string]any{"type": "text", "text": "no ID"}}),
 	}
-	document, err := RenderCodex(writeCodexRecords(t, records...))
+	document, err := Render(writeCodexRecords(t, records...))
 	if err != nil {
-		t.Fatalf("RenderCodex: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	if got := strings.Count(document.Markdown, "same text"); got != 3 {
 		t.Errorf("same text count = %d, want 3", got)
@@ -153,7 +153,7 @@ func TestRenderCodexDeduplicatesOnlyByTurnAndID(t *testing.T) {
 	}
 }
 
-func TestRenderCodexThreadSelection(t *testing.T) {
+func TestRenderThreadSelection(t *testing.T) {
 	missingThread := codexMessage("UserMessage", "missing thread", "m0", "main", "t0")
 	delete(missingThread["payload"].(map[string]any), "thread_id")
 	numericThread := codexMessage("UserMessage", "numeric thread", "m3", "main", "t3")
@@ -170,9 +170,9 @@ func TestRenderCodexThreadSelection(t *testing.T) {
 	nullThread := codexMessage("UserMessage", "null thread", "m4", "main", "t4")
 	nullThread["payload"].(map[string]any)["thread_id"] = nil
 	records = append(records, nullThread)
-	document, err := RenderCodex(writeCodexRecords(t, records...))
+	document, err := Render(writeCodexRecords(t, records...))
 	if err != nil {
-		t.Fatalf("RenderCodex: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	for _, included := range []string{"missing thread", "matching thread", "null thread"} {
 		if !strings.Contains(document.Markdown, included) {
@@ -186,22 +186,22 @@ func TestRenderCodexThreadSelection(t *testing.T) {
 	}
 }
 
-func TestRenderCodexRejectsMalformedMessageContent(t *testing.T) {
+func TestRenderRejectsMalformedMessageContent(t *testing.T) {
 	for _, malformed := range []any{nil, map[string]any{"type": "text"}, "text"} {
 		t.Run("malformed", func(t *testing.T) {
 			item := map[string]any{"type": "UserMessage", "id": "bad", "content": malformed}
 			record := map[string]any{"type": "event_msg", "payload": map[string]any{
 				"type": "item_completed", "thread_id": "main", "turn_id": "t1", "item": item,
 			}}
-			_, err := RenderCodex(writeCodexRecords(t, codexMeta("main"), record))
+			_, err := Render(writeCodexRecords(t, codexMeta("main"), record))
 			if err == nil || !strings.Contains(strings.ToLower(err.Error()), "message content") {
-				t.Fatalf("RenderCodex error = %v, want malformed message content error", err)
+				t.Fatalf("Render error = %v, want malformed message content error", err)
 			}
 		})
 	}
 }
 
-func TestRenderCodexPartialTailIsReportedAndCompleteCorruptionFails(t *testing.T) {
+func TestRenderPartialTailIsReportedAndCompleteCorruptionFails(t *testing.T) {
 	path := writeCodexRecords(t, codexMeta("main"), codexMessage("UserMessage", "question", "u1", "main", "t1"))
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -215,9 +215,9 @@ func TestRenderCodexPartialTailIsReportedAndCompleteCorruptionFails(t *testing.T
 		t.Fatalf("close rollout: %v", err)
 	}
 
-	document, err := RenderCodex(path)
+	document, err := Render(path)
 	if err != nil {
-		t.Fatalf("RenderCodex partial tail: %v", err)
+		t.Fatalf("Render partial tail: %v", err)
 	}
 	if !strings.Contains(document.Markdown, "unfinished final log record was omitted") {
 		t.Errorf("Markdown does not report omitted partial tail")
@@ -237,23 +237,23 @@ func TestRenderCodexPartialTailIsReportedAndCompleteCorruptionFails(t *testing.T
 	if err := file.Close(); err != nil {
 		t.Fatalf("close rollout: %v", err)
 	}
-	if _, err := RenderCodex(path); err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid codex jsonl") {
-		t.Fatalf("RenderCodex error = %v, want invalid Codex JSONL error", err)
+	if _, err := Render(path); err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid codex jsonl") {
+		t.Fatalf("Render error = %v, want invalid Codex JSONL error", err)
 	}
 }
 
-func TestRenderCodexHandlesLargeRecords(t *testing.T) {
+func TestRenderHandlesLargeRecords(t *testing.T) {
 	text := "prefix\n" + strings.Repeat("x", 128*1024) + "\nsuffix"
-	document, err := RenderCodex(writeCodexRecords(t, codexMeta("main"), codexMessage("AgentMessage", text, "a1", "main", "t1")))
+	document, err := Render(writeCodexRecords(t, codexMeta("main"), codexMessage("AgentMessage", text, "a1", "main", "t1")))
 	if err != nil {
-		t.Fatalf("RenderCodex: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
 	if !strings.Contains(document.Markdown, text) {
 		t.Fatal("large Markdown message was not preserved")
 	}
 }
 
-func TestRenderCodexRejectsUnsupportedFormatsAndMissingSessionID(t *testing.T) {
+func TestRenderRejectsUnsupportedFormatsAndMissingSessionID(t *testing.T) {
 	tests := []struct {
 		name    string
 		records []map[string]any
@@ -268,9 +268,9 @@ func TestRenderCodexRejectsUnsupportedFormatsAndMissingSessionID(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := writeCodexRecords(t, test.records...)
-			_, err := RenderCodex(path)
+			_, err := Render(path)
 			if err == nil || !strings.Contains(strings.ToLower(err.Error()), test.wantErr) {
-				t.Fatalf("RenderCodex error = %v, want %q", err, test.wantErr)
+				t.Fatalf("Render error = %v, want %q", err, test.wantErr)
 			}
 		})
 	}
@@ -279,22 +279,22 @@ func TestRenderCodexRejectsUnsupportedFormatsAndMissingSessionID(t *testing.T) {
 	if err := os.WriteFile(rawPath, []byte("$ codex\nprivate terminal output\n"), 0600); err != nil {
 		t.Fatalf("write raw transcript: %v", err)
 	}
-	if _, err := RenderCodex(rawPath); err == nil {
-		t.Fatal("RenderCodex accepted raw terminal output")
+	if _, err := Render(rawPath); err == nil {
+		t.Fatal("Render accepted raw terminal output")
 	}
 }
 
-func TestRenderCodexEmptyForkNotice(t *testing.T) {
+func TestRenderEmptyForkNotice(t *testing.T) {
 	meta := codexMeta("fork")
 	meta["payload"].(map[string]any)["forked_from_id"] = "parent"
 	settings := map[string]any{"type": "event_msg", "payload": map[string]any{"type": "thread_settings_applied", "thread_id": "fork"}}
 	path := writeCodexRecords(t, meta, settings)
-	_, err := RenderCodex(path)
+	_, err := Render(path)
 	if err == nil || !strings.Contains(err.Error(), "No saved public messages") || !strings.Contains(err.Error(), "try again") {
 		t.Fatalf("missing actionable empty-session notice: %v", err)
 	}
 	path = writeCodexRecords(t, meta, settings, codexMessage("UserMessage", "First fork message", "u", "fork", "t"))
-	doc, err := RenderCodex(path)
+	doc, err := Render(path)
 	if err != nil || !strings.Contains(doc.Markdown, "First fork message") {
 		t.Fatalf("first saved fork message not rendered: %v", err)
 	}

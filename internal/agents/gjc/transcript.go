@@ -1,13 +1,15 @@
-package transcript
+package gjc
 
 import (
 	"fmt"
 	"strings"
+
+	"agent-transcript/internal/transcript"
 )
 
 const gjcContextClearedMarker = "> Context cleared — subsequent messages started without the previous context."
 
-// RenderGJC renders the public conversation on the latest persisted GJC graph
+// Render renders the public conversation on the latest persisted GJC graph
 // record's parent chain.
 //
 // GJC session files contain a session header followed by an append-only graph
@@ -16,20 +18,20 @@ const gjcContextClearedMarker = "> Context cleared — subsequent messages start
 // graph record for this historical view; this does not prove the previous
 // in-memory active leaf or mutate the persisted parentId. Other parentless
 // records terminate traversal.
-func RenderGJC(path string) (Document, error) {
-	records, partial, err := ReadJSONL(path)
+func Render(path string) (transcript.Document, error) {
+	records, partial, err := transcript.ReadJSONL(path)
 	if err != nil {
-		return Document{}, fmt.Errorf("Invalid GJC JSONL: %w", err)
+		return transcript.Document{}, fmt.Errorf("Invalid GJC JSONL: %w", err)
 	}
 	if len(records) == 0 {
-		return Document{}, fmt.Errorf("Empty GJC session file.")
+		return transcript.Document{}, fmt.Errorf("Empty GJC session file.")
 	}
 
 	header := records[0]
 	version, versionOK := header["version"].(float64)
-	sessionID := String(header, "id")
-	if String(header, "type") != "session" || !versionOK || version != 5 || sessionID == "" {
-		return Document{}, fmt.Errorf("Expected a GJC version 5 session file.")
+	sessionID := transcript.String(header, "id")
+	if transcript.String(header, "type") != "session" || !versionOK || version != 5 || sessionID == "" {
+		return transcript.Document{}, fmt.Errorf("Expected a GJC version 5 session file.")
 	}
 
 	entries := make(map[string]map[string]any, len(records)-1)
@@ -38,40 +40,40 @@ func RenderGJC(path string) (Document, error) {
 	for _, record := range records[1:] {
 		// Header patches update session presentation metadata, not the message
 		// graph: they intentionally have no entry ID or parent link.
-		if String(record, "type") == "header_patch" {
-			if Object(record, "patch") == nil {
-				return Document{}, fmt.Errorf("Invalid GJC header_patch: expected patch object.")
+		if transcript.String(record, "type") == "header_patch" {
+			if transcript.Object(record, "patch") == nil {
+				return transcript.Document{}, fmt.Errorf("Invalid GJC header_patch: expected patch object.")
 			}
 			if _, exists := record["id"]; exists {
-				return Document{}, fmt.Errorf("Invalid GJC header_patch: unexpected graph ID.")
+				return transcript.Document{}, fmt.Errorf("Invalid GJC header_patch: unexpected graph ID.")
 			}
 			if _, exists := record["parentId"]; exists {
-				return Document{}, fmt.Errorf("Invalid GJC header_patch: unexpected graph parent.")
+				return transcript.Document{}, fmt.Errorf("Invalid GJC header_patch: unexpected graph parent.")
 			}
 			continue
 		}
-		ident := String(record, "id")
+		ident := transcript.String(record, "id")
 		if ident == "" {
-			return Document{}, fmt.Errorf("Invalid or duplicate GJC entry ID.")
+			return transcript.Document{}, fmt.Errorf("Invalid or duplicate GJC entry ID.")
 		}
 		if _, exists := entries[ident]; exists {
-			return Document{}, fmt.Errorf("Invalid or duplicate GJC entry ID.")
+			return transcript.Document{}, fmt.Errorf("Invalid or duplicate GJC entry ID.")
 		}
 
 		parentValue, hasParent := record["parentId"]
 		if hasParent && parentValue != nil {
 			parent, parentOK := parentValue.(string)
 			if !parentOK || parent == "" {
-				return Document{}, fmt.Errorf("Missing or out-of-order GJC parent for %s.", ident)
+				return transcript.Document{}, fmt.Errorf("Missing or out-of-order GJC parent for %s.", ident)
 			}
 			if _, exists := entries[parent]; !exists {
-				return Document{}, fmt.Errorf("Missing or out-of-order GJC parent for %s.", ident)
+				return transcript.Document{}, fmt.Errorf("Missing or out-of-order GJC parent for %s.", ident)
 			}
 		}
 
 		// Context-clear roots deliberately bridge to file order rather than
 		// claiming to recover an unavailable previous active leaf.
-		if String(record, "type") == "custom" && String(record, "customType") == "context_clear" && (!hasParent || parentValue == nil) && lastGraphID != "" {
+		if transcript.String(record, "type") == "custom" && transcript.String(record, "customType") == "context_clear" && (!hasParent || parentValue == nil) && lastGraphID != "" {
 			contextClearBridges[ident] = lastGraphID
 		}
 		entries[ident] = record
@@ -83,11 +85,11 @@ func RenderGJC(path string) (Document, error) {
 	selected := lastGraphID
 	for selected != "" {
 		if _, seen := visited[selected]; seen {
-			return Document{}, fmt.Errorf("Invalid cyclic GJC parent graph at %s.", selected)
+			return transcript.Document{}, fmt.Errorf("Invalid cyclic GJC parent graph at %s.", selected)
 		}
 		entry, exists := entries[selected]
 		if !exists {
-			return Document{}, fmt.Errorf("Missing GJC ancestor for %s.", selected)
+			return transcript.Document{}, fmt.Errorf("Missing GJC ancestor for %s.", selected)
 		}
 		visited[selected] = struct{}{}
 		branch = append(branch, entry)
@@ -96,7 +98,7 @@ func RenderGJC(path string) (Document, error) {
 		if hasParent && parentValue != nil {
 			parent, parentOK := parentValue.(string)
 			if !parentOK || parent == "" {
-				return Document{}, fmt.Errorf("Missing or invalid GJC parent for %s.", selected)
+				return transcript.Document{}, fmt.Errorf("Missing or invalid GJC parent for %s.", selected)
 			}
 			selected = parent
 			continue
@@ -108,17 +110,17 @@ func RenderGJC(path string) (Document, error) {
 	publicMessageCount := 0
 	for index := len(branch) - 1; index >= 0; index-- {
 		entry := branch[index]
-		if String(entry, "type") == "custom" && String(entry, "customType") == "context_clear" {
+		if transcript.String(entry, "type") == "custom" && transcript.String(entry, "customType") == "context_clear" {
 			messages = append(messages, gjcContextClearedMarker)
 		}
-		if String(entry, "type") != "message" {
+		if transcript.String(entry, "type") != "message" {
 			continue
 		}
-		message := Object(entry, "message")
+		message := transcript.Object(entry, "message")
 		if message == nil {
-			return Document{}, fmt.Errorf("Invalid GJC message.")
+			return transcript.Document{}, fmt.Errorf("Invalid GJC message.")
 		}
-		role := String(message, "role")
+		role := transcript.String(message, "role")
 		if role != "user" && role != "assistant" {
 			continue
 		}
@@ -137,7 +139,7 @@ func RenderGJC(path string) (Document, error) {
 		}
 		content, contentOK := contentValue.([]any)
 		if !contentOK {
-			return Document{}, fmt.Errorf("Unsupported GJC message content (expected content blocks).")
+			return transcript.Document{}, fmt.Errorf("Unsupported GJC message content (expected content blocks).")
 		}
 		parts := make([]string, 0, len(content))
 		for _, rawBlock := range content {
@@ -145,7 +147,7 @@ func RenderGJC(path string) (Document, error) {
 			if !blockOK {
 				continue
 			}
-			switch String(block, "type") {
+			switch transcript.String(block, "type") {
 			case "text":
 				if text, ok := block["text"].(string); ok {
 					parts = append(parts, text)
@@ -164,7 +166,7 @@ func RenderGJC(path string) (Document, error) {
 		label := "User"
 		if role == "assistant" {
 			label = "GJC"
-			if stopReason := String(message, "stopReason"); stopReason == "error" || stopReason == "aborted" {
+			if stopReason := transcript.String(message, "stopReason"); stopReason == "error" || stopReason == "aborted" {
 				label += " (interrupted)"
 			}
 		}
@@ -175,7 +177,7 @@ func RenderGJC(path string) (Document, error) {
 	// Markers provide context only; a clear/header-only graph still has no
 	// public conversation and must fail like any other empty transcript.
 	if publicMessageCount == 0 {
-		return Document{}, fmt.Errorf("no public conversation messages in gjc session")
+		return transcript.Document{}, fmt.Errorf("no public conversation messages in gjc session")
 	}
-	return NewDocument("GJC", sessionID, messages, partial)
+	return transcript.NewDocument("GJC", sessionID, messages, partial)
 }

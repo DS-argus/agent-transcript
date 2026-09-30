@@ -96,6 +96,9 @@ func writeSnapshot(identity snapshotIdentity) (preparedSnapshot, error) {
 		return preparedSnapshot{}, err
 	}
 	doc, writeErr := harness.RenderFile(identity.harness, identity.path)
+	if writeErr == nil && (doc.Harness != identity.harness || doc.SessionID != identity.session) {
+		writeErr = fmt.Errorf("source transcript identity changed during snapshot; retry")
+	}
 	if writeErr == nil {
 		_, writeErr = io.WriteString(file, doc.Markdown)
 	}

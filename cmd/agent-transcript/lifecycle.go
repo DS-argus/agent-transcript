@@ -150,6 +150,10 @@ func open(ctx context.Context, o options) error {
 		if target.owner == "1" && target.signature != identity.signature() {
 			return fmt.Errorf("source session changed; open from the agent pane")
 		}
+		o, err = resolveViewSize(ctx, o, identity.harness)
+		if err != nil {
+			return err
+		}
 		viewers, err := matchingViewers(ctx, identity)
 		if err != nil {
 			return err
@@ -159,6 +163,20 @@ func open(ctx context.Context, o options) error {
 			return err
 		}
 		defer snapshot.cleanup()
+		current, err = inspectPane(ctx, source.id)
+		if err != nil {
+			return err
+		}
+		if current.dead != "0" || current.pid != source.pid {
+			return fmt.Errorf("source pane changed during snapshot; retry")
+		}
+		confirmed, err := resolveIdentity(current)
+		if err != nil {
+			return err
+		}
+		if confirmed.signature() != identity.signature() {
+			return fmt.Errorf("source session changed during snapshot; retry")
+		}
 		if len(viewers) > 0 {
 			return refreshViewer(ctx, o, identity, snapshot, viewers[0].id, initialFocus)
 		}

@@ -1,4 +1,4 @@
-package harness
+package codex
 
 import (
 	"bufio"
@@ -9,20 +9,40 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agent-transcript/internal/agents"
+	"agent-transcript/internal/process"
 	"agent-transcript/internal/transcript"
 )
 
+type Resolver struct {
+	Run process.Runner
+}
+
+func (r Resolver) Locate(pids []int) (agents.Source, error) {
+	if err := agents.ValidatePIDs("codex", pids); err != nil {
+		return agents.Source{}, err
+	}
+	if r.Run == nil {
+		r.Run = process.Run
+	}
+	matches, err := r.locateCodex(pids)
+	if err != nil {
+		return agents.Source{}, err
+	}
+	return agents.Unique("codex", matches)
+}
+
 type codexRollout struct {
-	source Source
+	source agents.Source
 	parent string
 }
 
-func (r Resolver) locateCodex(pids []int) ([]Source, error) {
-	paths, err := r.openFiles(pids)
+func (r Resolver) locateCodex(pids []int) ([]agents.Source, error) {
+	paths, err := process.OpenFiles(pids, r.Run)
 	if err != nil {
 		return nil, err
 	}
-	var matches []Source
+	var matches []agents.Source
 	byID := make(map[string]codexRollout)
 	seenPaths := make(map[string]bool)
 	for _, path := range paths {
@@ -53,7 +73,7 @@ func (r Resolver) locateCodex(pids []int) ([]Source, error) {
 			continue
 		}
 		id := transcript.String(metadata, "id")
-		if !validID(id) {
+		if !agents.ValidID(id) {
 			return nil, fmt.Errorf("invalid Codex rollout session ID: %s", path)
 		}
 		if _, duplicate := byID[id]; duplicate {
@@ -63,11 +83,11 @@ func (r Resolver) locateCodex(pids []int) ([]Source, error) {
 		if value, exists := metadata["forked_from_id"]; exists && value != nil {
 			var ok bool
 			parent, ok = value.(string)
-			if !ok || !validID(parent) || parent == id {
+			if !ok || !agents.ValidID(parent) || parent == id {
 				return nil, fmt.Errorf("invalid Codex fork parent for session %s", id)
 			}
 		}
-		source := Source{Harness: "codex", Path: path}
+		source := agents.Source{Harness: "codex", Path: path}
 		byID[id] = codexRollout{source: source, parent: parent}
 		matches = append(matches, source)
 	}
@@ -112,7 +132,7 @@ func (r Resolver) locateCodex(pids []int) ([]Source, error) {
 	if len(visited) != len(byID) {
 		return nil, fmt.Errorf("Codex fork candidates do not form one acyclic ancestry chain")
 	}
-	return []Source{byID[tip].source}, nil
+	return []agents.Source{byID[tip].source}, nil
 }
 
 // Discovery needs only the header. The transcript parser validates the selected
@@ -138,7 +158,7 @@ func codexRolloutMetadata(path string) (map[string]any, error) {
 	return metadata, nil
 }
 
-func recognizeCodex(records []map[string]any) (string, bool) {
+func Detect(records []map[string]any) (string, bool) {
 	if len(records) == 0 || transcript.String(records[0], "type") != "session_meta" {
 		return "", false
 	}

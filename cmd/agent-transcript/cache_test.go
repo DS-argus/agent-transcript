@@ -35,7 +35,7 @@ func TestRuntimeArtifactsSharePrivateCacheRoot(t *testing.T) {
 		}
 	}
 	source := writeJSON(t, filepath.Join(t.TempDir(), "session.jsonl"), map[string]any{"type": "session", "version": 5, "id": "main"}, map[string]any{"type": "message", "id": "a", "parentId": nil, "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "Cache test"}}}})
-	snapshot, err := writeSnapshot(snapshotIdentity{path: source, harness: "gjc"})
+	snapshot, err := writeSnapshot(snapshotIdentity{path: source, harness: "gjc", session: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,5 @@
-// Package harness identifies the foreground agent before locating its session.
-package harness
+// Package gjc discovers and renders GJC sessions.
+package gjc
 
 import (
 	"bufio"
@@ -13,13 +13,39 @@ import (
 	"strings"
 	"time"
 
+	"agent-transcript/internal/agents"
+	"agent-transcript/internal/process"
 	"agent-transcript/internal/transcript"
 )
 
-// GJCAgentDir resolves the documented GJC environment override and default.
-func GJCAgentDir() string {
+// Resolver locates a foreground GJC process through its durable session index.
+type Resolver struct {
+	Dir      string
+	Identity func(int) (string, error)
+}
+
+// Locate returns the single session proven to belong to the supplied processes.
+func (r Resolver) Locate(pids []int) (agents.Source, error) {
+	if err := agents.ValidatePIDs("gjc", pids); err != nil {
+		return agents.Source{}, err
+	}
+	if r.Dir == "" {
+		r.Dir = AgentDir()
+	}
+	if r.Identity == nil {
+		r.Identity = process.ProcessIdentity
+	}
+	matches, err := r.gjcSessions(pids)
+	if err != nil {
+		return agents.Source{}, err
+	}
+	return agents.Unique("gjc", matches)
+}
+
+// AgentDir resolves the documented GJC environment override and default.
+func AgentDir() string {
 	if path := os.Getenv("GJC_CODING_AGENT_DIR"); path != "" {
-		return expandHome(path)
+		return agents.ExpandHome(path)
 	}
 	config := os.Getenv("GJC_CONFIG_DIR")
 	if config == "" {
@@ -54,9 +80,9 @@ type gjcSession struct {
 // gjcSessions performs discovery entirely from the broker's durable index. The
 // transcript itself remains the source of conversation contents; the index only
 // binds the current foreground process to one transcript ID.
-func (r Resolver) gjcSessions(pids []int) ([]Source, error) {
+func (r Resolver) gjcSessions(pids []int) ([]agents.Source, error) {
 	allowed := gjcAllowedPIDs(pids)
-	rows, err := gjcReadIndex(r.GJCDir)
+	rows, err := gjcReadIndex(r.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +90,7 @@ func (r Resolver) gjcSessions(pids []int) ([]Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	candidate, err := gjcSelectSession(rows, r.GJCDir, allowed, identities, time.Now())
+	candidate, err := gjcSelectSession(rows, r.Dir, allowed, identities, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +98,7 @@ func (r Resolver) gjcSessions(pids []int) ([]Source, error) {
 		return nil, nil
 	}
 
-	path, err := gjcSessionFile(r.GJCDir, candidate.sessionID)
+	path, err := gjcSessionFile(r.Dir, candidate.sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +110,7 @@ func (r Resolver) gjcSessions(pids []int) ([]Source, error) {
 	// Re-read both the index and every allowed process identity after checking
 	// the transcript header. Heartbeat/indexSeq-only changes are intentionally
 	// ignored by gjcSessionSame; authority changes are not.
-	againRows, err := gjcReadIndex(r.GJCDir)
+	againRows, err := gjcReadIndex(r.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("GJC session index changed during discovery; retry: %w", err)
 	}
@@ -95,14 +121,14 @@ func (r Resolver) gjcSessions(pids []int) ([]Source, error) {
 	if !gjcIdentitySnapshotsEqual(identities, againIdentities) {
 		return nil, fmt.Errorf("GJC process changed during discovery; retry")
 	}
-	againCandidate, err := gjcSelectSession(againRows, r.GJCDir, allowed, againIdentities, time.Now())
+	againCandidate, err := gjcSelectSession(againRows, r.Dir, allowed, againIdentities, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("GJC session changed during discovery; retry: %w", err)
 	}
 	if againCandidate == nil || !gjcSessionSame(candidate, againCandidate) {
 		return nil, fmt.Errorf("GJC session changed during discovery; retry")
 	}
-	return []Source{{Harness: "gjc", Path: path}}, nil
+	return []agents.Source{{Harness: "gjc", Path: path}}, nil
 }
 
 func gjcAllowedPIDs(pids []int) map[int]bool {
@@ -229,7 +255,7 @@ func gjcSessionSame(left, right *gjcSession) bool {
 }
 
 func gjcSessionFile(agentDir, sessionID string) (string, error) {
-	if !validID(sessionID) {
+	if !agents.ValidID(sessionID) {
 		return "", fmt.Errorf("invalid GJC session ID")
 	}
 	paths, err := filepath.Glob(filepath.Join(agentDir, "sessions", "*", "*_"+sessionID+".jsonl"))
@@ -283,7 +309,8 @@ func gjcCanonicalPath(path string) string {
 	return filepath.Clean(path)
 }
 
-func recognizeGJC(records []map[string]any) (string, bool) {
+// Detect recognizes a GJC session header and returns its session ID.
+func Detect(records []map[string]any) (string, bool) {
 	if len(records) == 0 || transcript.String(records[0], "type") != "session" {
 		return "", false
 	}

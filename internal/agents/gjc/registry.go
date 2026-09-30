@@ -1,4 +1,4 @@
-package harness
+package gjc
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"agent-transcript/internal/agents"
 )
 
 const (
@@ -413,7 +415,7 @@ func gjcParseEvent(data []byte, source string) (gjcIndexEvent, error) {
 		return gjcIndexEvent{}, fmt.Errorf("missing sessionId")
 	}
 	var sessionID string
-	if err := json.Unmarshal(sessionRaw, &sessionID); err != nil || !validID(sessionID) {
+	if err := json.Unmarshal(sessionRaw, &sessionID); err != nil || !agents.ValidID(sessionID) {
 		return gjcIndexEvent{}, fmt.Errorf("invalid sessionId")
 	}
 	pidRaw, ok := gjcJSONFieldValue(fields, "pid")
